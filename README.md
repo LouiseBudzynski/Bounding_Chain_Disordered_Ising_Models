@@ -1,1 +1,1 @@
-# Bounding_Chain_Disordered_Spin_Systems
+# Bounding_Chain_Disordered_Ising_Models
