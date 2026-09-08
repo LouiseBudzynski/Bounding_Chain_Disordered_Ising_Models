@@ -100,7 +100,106 @@ def _build_csr(G, couplings):
     
     return N, adj_indices, adj_indptr, adj_weights, adj_abs_weights    
 
-## Forward BC lazy
+## Forward BC
+@njit
+def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag):
+    config = np.empty(N, dtype=np.int8)
+    
+    # 1. Initialize Configuration based on flag
+    if init_flag == 0:
+        # FULL STAR: All nodes start as 0
+        for i in range(N):
+            config[i] = 0
+        num_stars = N
+    else:
+        # SINGLE STAR: One node is 0, rest are random +/- 1
+        for i in range(N):
+            config[i] = 1 if np.random.rand() < 0.5 else -1
+        star_node = np.random.randint(0, N)
+        config[star_node] = 0
+        num_stars = 1
+        
+    H_bar = np.zeros(N, dtype=np.float64)
+    M = np.zeros(N, dtype=np.float64)
+    
+    # 2. Universal Field Initialization (handles ANY starting config)
+    for v in range(N):
+        state_v = config[v]
+        start_idx = adj_indptr[v]
+        end_idx = adj_indptr[v + 1]
+        
+        for i in range(start_idx, end_idx):
+            u = adj_indices[i]
+            w = adj_weights[i]
+            aw = adj_abs_weights[i]
+            
+            # Inject v's state into its neighbor u
+            if state_v != 0:
+                H_bar[u] += w * state_v
+            else:
+                M[u] += aw
+
+    nb_star_state = np.zeros(max_iter + 1, dtype=np.int32)
+    nb_star_state[0] = num_stars
+    
+    # 3. Main MCMC Loop
+    for timestep in range(max_iter):
+        v = np.random.randint(0, N)
+        r = np.random.rand()
+        
+        current_state = config[v]
+
+        h_bar = H_bar[v]
+        m = M[v]
+        h_min = h_bar - m
+        h_max = h_bar + m
+
+        # Evaluate Transition
+        if r < F_beta_Glauber(beta, -2 * h_min):
+            new_state = 1
+        elif r > F_beta_Glauber(beta, -2 * h_max):
+            new_state = -1
+        else:
+            new_state = 0
+
+        # Apply Updates
+        if current_state != new_state:
+            config[v] = new_state
+
+            if current_state == 0:
+                num_stars -= 1
+            elif new_state == 0:
+                num_stars += 1
+
+            # Loop through neighbors
+            start_idx = adj_indptr[v]
+            end_idx = adj_indptr[v + 1]
+            
+            for i in range(start_idx, end_idx):
+                u = adj_indices[i]
+                w = adj_weights[i]
+                aw = adj_abs_weights[i]
+
+                # Strip old state
+                if current_state != 0:
+                    H_bar[u] -= w * current_state
+                else:
+                    M[u] -= aw
+
+                # Inject new state
+                if new_state != 0:
+                    H_bar[u] += w * new_state
+                else:
+                    M[u] += aw
+
+        nb_star_state[timestep + 1] = num_stars
+
+        # Coalescence check
+        if num_stars == 0:
+            return nb_star_state[:timestep + 2], float(timestep)
+
+    return nb_star_state, np.nan
+
 @njit
 def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler):
     config = np.empty(N, dtype=np.int8)
@@ -203,7 +302,11 @@ def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_a
 
     return nb_star_state, np.nan
 
-def BC_fwd_lazy(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star'):
+def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star', lazy=True):
+    # Check: Metropolois sampler only works with lazy BC
+    if not lazy and sampler is F_beta_Metropolis:
+        raise ValueError(f"sampler '{sampler.__name__}' incompatible with lazy={lazy} BC update")    
+
     """
     init_mode options:
       'full_star'   : All nodes initialize to the star state (0)
@@ -221,11 +324,16 @@ def BC_fwd_lazy(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC
     N, adj_indices, adj_indptr, adj_weights, adj_abs_weights = _build_csr(G, couplings)
     
     # Pass everything to the core
-    nb_star_state, final_step = _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler)
-    
+    if lazy:
+        nb_star_state, final_step = _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler)
+    else:
+        nb_star_state, final_step = _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag)
+
+        
     if not np.isnan(final_step):
         print(f"Coalescence achieved at iteration {int(final_step)} using {init_mode} initialization.")
     else:
         print(f"Warning: Coalescence not achieved after {max_iter} iterations.")
         
     return list(nb_star_state), final_step
+
