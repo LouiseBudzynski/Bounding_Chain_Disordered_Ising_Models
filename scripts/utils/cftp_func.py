@@ -341,6 +341,7 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, ini
 def compute_coal_time(N_list, beta, G_factory, n_runs=25, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star', lazy=True):
     results = []
     for N in N_list:
+        print(f"N={int(N)}")
         coal_times = []
         for _ in range(n_runs):
             G, couplings = G_factory(N)  # resample each run for disorder average
