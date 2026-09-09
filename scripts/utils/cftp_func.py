@@ -5,7 +5,7 @@ This script implements all needed functions for the project "Bounding Chains for
 import numpy as np
 from numba import njit
 import networkx as nx
-import matplotlib.pyplot as plt
+import pandas as pd
 
 max_iter_BC = 2**22
 
@@ -337,3 +337,26 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, ini
         
     return list(nb_star_state), final_step
 
+## COALESCENCE TIME
+def compute_coal_time(N_list, beta, G_factory, n_runs=25, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star', lazy=True):
+    results = []
+    for N in N_list:
+        coal_times = []
+        for _ in range(n_runs):
+            G, couplings = G_factory(N)  # resample each run for disorder average
+            _, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy)
+            if not np.isnan(coal_time):
+                coal_times.append(coal_time)
+        results.append({
+            'beta': beta,
+            'sampler': sampler.__name__,
+            'lazy': lazy,
+            'init_mode': init_mode,
+            'n_runs': n_runs,
+            'max_iter': max_iter,
+            'N': N,
+            'frac_coal': len(coal_times)/n_runs,
+            'mean_coal_time': np.mean(coal_times) if len(coal_times) > 0 else np.nan,
+            'std_coal_time': np.std(coal_times) if len(coal_times) > 0 else np.nan,
+        })
+    return pd.DataFrame(results)
