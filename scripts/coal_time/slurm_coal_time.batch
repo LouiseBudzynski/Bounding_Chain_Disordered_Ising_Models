@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# slurm_coal_time.batch
+#
+
+#SBATCH --job-name=coal_time
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=16G
+#SBATCH --time=72:00:00
+#SBATCH --output=%x_%j.log
+
+echo "Running on $(hostname)"
+echo "Job ID: $SLURM_JOB_ID"
+
+# Parse arguments
+GRAPH_TYPE=$1
+COUP_TYPE=$2
+D=$3
+BETA=$4
+N_RUNS=$5
+MAX_ITER=$6
+INIT_MODE=$7
+LAZY=$8
+N_LIST=$9   # e.g. "100 500 1000 2500 5000 10000"
+
+echo "Parameters: GRAPH_TYPE=$GRAPH_TYPE, COUP_TYPE=$COUP_TYPE, D=$D, BETA=$BETA, N_RUNS=$N_RUNS, MAX_ITER=$MAX_ITER, INIT_MODE=$INIT_MODE, LAZY=$LAZY, N_LIST=$N_LIST"
+
+source /home/$USER/.bashrc
+conda activate py312
+
+python scripts/coal_time/run_coal_time.py \
+    --graph_type $GRAPH_TYPE \
+    --coup_type $COUP_TYPE \
+    --d $D \
+    --beta $BETA \
+    --n_runs $N_RUNS \
+    --max_iter $MAX_ITER \
+    --init_mode $INIT_MODE \
+    --lazy $LAZY \
+    --N_list $N_LIST

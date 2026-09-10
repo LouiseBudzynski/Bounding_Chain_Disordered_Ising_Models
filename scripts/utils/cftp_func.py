@@ -2,12 +2,15 @@
 This script implements all needed functions for the project "Bounding Chains for Disordered Ising Models". 
 """
 
-import numpy as np
 from numba import njit
+import matplotlib.pyplot as plt
+import os
+import numpy as np
 import networkx as nx
 import pandas as pd
+from scipy.stats import norm
+from scipy.sparse import csr_matrix
 
-max_iter_BC = 2**22
 
 ## MODELS
 def create_ER_graph(N, d, coupling_type='ising'):
@@ -74,7 +77,7 @@ def F_beta_Metropolis(beta, U):
         return np.exp(-beta * U)
 
 ## Build CSR format
-def _build_csr(G, couplings):
+def _build_csr_slow(G, couplings):
     N = G.number_of_nodes()
     node_list = list(G.nodes())
     node_to_idx = {node: idx for idx, node in enumerate(node_list)}
@@ -99,6 +102,33 @@ def _build_csr(G, couplings):
     adj_indptr[N] = ptr
     
     return N, adj_indices, adj_indptr, adj_weights, adj_abs_weights    
+
+def _build_csr(G, couplings): ### TOCHECK
+    N = G.number_of_nodes()
+    node_list = list(G.nodes())
+    
+    A = nx.to_scipy_sparse_array(G, nodelist=node_list, format='csr')
+    
+    adj_indptr = A.indptr.astype(np.int32)
+    adj_indices = A.indices.astype(np.int32)
+    
+    # fill weights using the coupling matrix
+    coup = nx.to_numpy_array(G, nodelist=node_list) * couplings
+    adj_weights = coup[A.indices, np.repeat(np.arange(N), np.diff(A.indptr))].astype(np.float64)
+    adj_abs_weights = np.abs(adj_weights)
+    
+    return N, adj_indices, adj_indptr, adj_weights, adj_abs_weights
+
+def test_build_csr(G, couplings):
+    # run both
+    N_slow, idx_slow, indptr_slow, w_slow, aw_slow = _build_csr_slow(G, couplings)
+    N_fast, idx_fast, indptr_fast, w_fast, aw_fast = _build_csr(G, couplings)
+
+    # compare
+    print(np.allclose(idx_slow, idx_fast))
+    print(np.allclose(indptr_slow, indptr_fast))
+    print(np.allclose(w_slow, w_fast))
+    print(np.allclose(aw_slow, aw_fast))
 
 ## Forward BC
 @njit
@@ -302,7 +332,7 @@ def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_a
 
     return nb_star_state, np.nan
 
-def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star', lazy=True):
+def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=True):
     # Check: Metropolois sampler only works with lazy BC
     if not lazy and sampler is F_beta_Metropolis:
         raise ValueError(f"sampler '{sampler.__name__}' incompatible with lazy={lazy} BC update")    
@@ -338,7 +368,7 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=max_iter_BC, ini
     return list(nb_star_state), final_step
 
 ## COALESCENCE TIME
-def compute_coal_time(N_list, beta, G_factory, n_runs=25, sampler=F_beta_Glauber, max_iter=max_iter_BC, init_mode='full_star', lazy=True):
+def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=False):
     results = []
     for N in N_list:
         print(f"N={int(N)}")
@@ -356,8 +386,18 @@ def compute_coal_time(N_list, beta, G_factory, n_runs=25, sampler=F_beta_Glauber
             'n_runs': n_runs,
             'max_iter': max_iter,
             'N': N,
-            'frac_coal': len(coal_times)/n_runs,
+            'n_coal': len(coal_times),
             'mean_coal_time': np.mean(coal_times) if len(coal_times) > 0 else np.nan,
             'std_coal_time': np.std(coal_times) if len(coal_times) > 0 else np.nan,
         })
     return pd.DataFrame(results)
+
+## ANALYSIS
+def wilson_interval(k, n, confidence=0.95): ### TOCHECK
+    z = norm.ppf((1 + confidence) / 2)
+    p = k / n
+    center = (k + z**2/2) / (n + z**2)
+    margin = z * np.sqrt(k*(n-k)/n + z**2/4) / (n + z**2)
+    lower = center - margin
+    upper = center + margin
+    return p, p - lower, upper - p  # value, err_down, err_up
