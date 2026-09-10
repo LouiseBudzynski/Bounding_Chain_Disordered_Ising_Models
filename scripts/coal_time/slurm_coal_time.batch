@@ -29,7 +29,7 @@ echo "Parameters: GRAPH_TYPE=$GRAPH_TYPE, COUP_TYPE=$COUP_TYPE, D=$D, BETA=$BETA
 source /home/$USER/.bashrc
 conda activate py312
 
-python scripts/coal_time/run_coal_time.py \
+python run_coal_time.py \
     --graph_type $GRAPH_TYPE \
     --coup_type $COUP_TYPE \
     --d $D \

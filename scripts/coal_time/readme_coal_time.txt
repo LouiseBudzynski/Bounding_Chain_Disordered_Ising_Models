@@ -24,3 +24,4 @@ sbatch slurm_coal_time.batch ER ising 4 0.3 25 4194304 full_star False "100 500 
 and
 
 sbatch --array=0-4 slurm_array_coal_time.batch ER ising 4 "0.1,0.2,0.3,0.4,0.5" 25 4194304 full_star False "100 500 1000 2500 5000 10000"
+

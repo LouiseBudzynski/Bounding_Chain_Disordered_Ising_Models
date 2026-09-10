@@ -40,7 +40,7 @@ echo "Running with BETA=$BETA (job array index $SLURM_ARRAY_TASK_ID)"
 source /home/$USER/.bashrc
 conda activate py312
 
-python scripts/coal_time/run_coal_time.py \
+python run_coal_time.py \
     --graph_type $GRAPH_TYPE \
     --coup_type $COUP_TYPE \
     --d $D \

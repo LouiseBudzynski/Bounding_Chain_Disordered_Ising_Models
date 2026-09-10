@@ -361,9 +361,9 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
 
         
     if not np.isnan(final_step):
-        print(f"Coalescence achieved at iteration {int(final_step)} using {init_mode} initialization.")
+        print(f"Coalescence achieved at iteration {int(final_step)}.", flush=True)
     else:
-        print(f"Warning: Coalescence not achieved after {max_iter} iterations.")
+        print(f"Warning: Coalescence not achieved after {max_iter} iterations.", flush=True)
         
     return list(nb_star_state), final_step
 
@@ -371,7 +371,7 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
 def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=False):
     results = []
     for N in N_list:
-        print(f"N={int(N)}")
+        print(f"N={int(N)}", flush=True)
         coal_times = []
         for _ in range(n_runs):
             G, couplings = G_factory(N)  # resample each run for disorder average

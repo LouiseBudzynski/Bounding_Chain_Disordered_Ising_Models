@@ -47,7 +47,7 @@ if __name__ == '__main__':
     os.makedirs(results_dir, exist_ok=True)
 
     csv_path = os.path.join(results_dir,
-        f"coal_time_{args.graph_type}_{args.coup_type}_d{args.d}_beta{args.beta:.3f}_lazy{lazy}_{args.init_mode}.csv")
+        f"coal_time_{args.graph_type}_{args.coup_type}_d{args.d}_beta{args.beta:.3f}.csv")
 
     df.to_csv(csv_path, index=False)
     print(f"Saved to {csv_path}")
