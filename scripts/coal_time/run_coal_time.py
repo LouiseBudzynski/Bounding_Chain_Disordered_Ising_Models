@@ -49,5 +49,12 @@ if __name__ == '__main__':
     csv_path = os.path.join(results_dir,
         f"coal_time_{args.graph_type}_{args.coup_type}_d{args.d}_beta{args.beta:.3f}.csv")
 
-    df.to_csv(csv_path, index=False)
+
+    if os.path.exists(csv_path):
+        df_full = pd.read_csv(csv_path)
+        df_combined = pd.concat([df_full, df], ignore_index=True)
+        df_combined.to_csv(csv_path, index=False)
+    else:
+        df.to_csv(csv_path, index=False)
+
     print(f"Saved to {csv_path}")

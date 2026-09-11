@@ -76,7 +76,7 @@ def F_beta_Metropolis(beta, U):
     else:
         return np.exp(-beta * U)
 
-## Build CSR format
+## BUILD CSR FORMAT
 def _build_csr_slow(G, couplings):
     N = G.number_of_nodes()
     node_list = list(G.nodes())
@@ -130,7 +130,7 @@ def test_build_csr(G, couplings):
     print(np.allclose(w_slow, w_fast))
     print(np.allclose(aw_slow, aw_fast))
 
-## Forward BC
+## FORWARD BC
 @njit
 def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag):
     config = np.empty(N, dtype=np.int8)
@@ -366,6 +366,109 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
         print(f"Warning: Coalescence not achieved after {max_iter} iterations.", flush=True)
         
     return list(nb_star_state), final_step
+
+## DAMAGE SPREADING
+@njit
+def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=True):
+    # 1. Initialize n_configs random configurations (+1 or -1)
+    configs = np.empty((n_configs, N), dtype=np.int8)
+    for k in range(n_configs):
+        for i in range(N):
+            configs[k, i] = 1 if np.random.rand() < 0.5 else -1
+
+    # 2. Pre-calculate the initial local field (H)
+    H = np.zeros((n_configs, N), dtype=np.float64)
+    for k in range(n_configs):
+        for v in range(N):
+            state_v = configs[k, v]
+            start_idx = adj_indptr[v]
+            end_idx = adj_indptr[v + 1]
+            for i in range(start_idx, end_idx):
+                u = adj_indices[i]
+                w = adj_weights[i]
+                H[k, u] += w * state_v
+
+    # 3. Initialize disagreement counts vs config 0
+    old_states = np.empty(n_configs, dtype=np.int8)
+    unresolved = np.ones(n_configs, dtype=np.bool_)
+    unresolved[0] = False
+    n_disagreements = np.zeros(n_configs, dtype=np.int32)
+    for k in range(1, n_configs):
+        for i in range(N):
+            if configs[k, i] != configs[0, i]:
+                n_disagreements[k] += 1
+    num_unresolved = n_configs - 1
+
+    nb_unresolved_state = np.zeros(max_iter + 1, dtype=np.int32)
+    nb_unresolved_state[0] = num_unresolved
+
+    # 4. Main MCMC Loop
+    for t in range(1, max_iter + 1):
+        v = np.random.randint(0, N)
+        r = np.random.rand()
+        
+        if lazy:
+            s = 1 if np.random.rand() < 0.5 else -1
+        
+        # Save old states at vertex v before any update
+        for k in range(n_configs):
+            old_states[k] = configs[k, v]
+
+        # Apply transition to ALL configurations
+        for k in range(n_configs):
+            current_state = configs[k, v]
+            
+            if not lazy:
+                s = -current_state  
+            
+            if current_state != s:
+                h = H[k, v]
+                if r < sampler(beta, 2 * current_state * h):
+                    configs[k, v] = s
+                    start_idx = adj_indptr[v]
+                    end_idx = adj_indptr[v + 1]
+                    for i in range(start_idx, end_idx):
+                        u = adj_indices[i]
+                        w = adj_weights[i]
+                        H[k, u] += 2 * w * s
+
+        # Update disagreement counts
+        old_v0 = old_states[0]
+        new_v0 = configs[0, v]
+        for k in range(1, n_configs):
+            if unresolved[k]:
+                old_vk = old_states[k]
+                new_vk = configs[k, v]
+                if (old_vk != old_v0) and (new_vk == new_v0):
+                    n_disagreements[k] -= 1
+                elif (old_vk == old_v0) and (new_vk != new_v0):
+                    n_disagreements[k] += 1
+                if n_disagreements[k] == 0:
+                    unresolved[k] = False
+                    num_unresolved -= 1
+
+        nb_unresolved_state[t] = num_unresolved
+
+        if num_unresolved == 0:
+            return nb_unresolved_state[:t + 1], float(t)
+
+    return nb_unresolved_state, np.nan
+
+
+def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_configs=100, lazy=True):
+    # build CSR format
+    N, adj_indices, adj_indptr, adj_weights, _ = _build_csr(G, couplings)
+    
+    # Pass everything to the core
+    nb_unresolved_state, final_step = _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=lazy)
+
+    if not np.isnan(final_step):
+        print(f"Coalescence achieved at iteration {int(final_step)}.", flush=True)
+    else:
+        print(f"Warning: Coalescence not achieved after {max_iter} iterations.", flush=True)
+        
+    return list(nb_unresolved_state), final_step
+
 
 ## COALESCENCE TIME
 def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=False):
