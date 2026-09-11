@@ -392,6 +392,43 @@ def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber,
         })
     return pd.DataFrame(results)
 
+## EVOLUTION OF UNRESOLVED STATES
+def compute_nb_star(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=10**4, init_mode='full_star', lazy=False, n_points=1000):
+    
+    trajectories = []
+    coal_times = []
+
+    for _ in range(n_runs):
+        G, couplings = G_factory(N) 
+        nb_star_states, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy)
+        
+        if not np.isnan(coal_time):
+            coal_times.append(coal_time)
+            pad = np.full(max_iter + 1 - len(nb_star_states), 0)
+            nb_star_states = np.concatenate([nb_star_states, pad])
+
+        step = max(1, len(nb_star_states) // n_points)
+        nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
+        trajectories.append(nb_star_states)
+
+    padded = np.array(trajectories, dtype=np.float64)
+    n = padded.shape[1]
+    time = np.arange(n) * step
+
+    return pd.DataFrame({
+        'beta': np.full(n, beta),
+        'sampler': np.full(n, sampler.__name__),
+        'lazy': np.full(n, lazy),
+        'init_mode': np.full(n, init_mode),
+        'n_runs': np.full(n, n_runs),
+        'max_iter': np.full(n, max_iter),
+        'N': np.full(n, N),
+        'n_coal': np.full(n, len(coal_times)),
+        'time': time,
+        'mean_nb_star': np.nanmean(padded, axis=0),
+        'std_nb_star': np.nanstd(padded, axis=0),
+    })
+
 ## ANALYSIS
 def wilson_interval(k, n, confidence=0.95): ### TOCHECK
     z = norm.ppf((1 + confidence) / 2)
