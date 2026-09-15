@@ -471,16 +471,28 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
                 w = adj_weights[i]
                 H[k, u] += w * state_v
 
-    # 3. Initialize count_stars
+    # 3. Initialize count_stars & nb unresolved configs
     count_stars = 0
+    n_disagreements = np.zeros(n_configs, dtype=np.int32)
     for i in range(N):
+        star_i = False
         for k in range(1, n_configs):
             if configs[k, i] != configs[0, i]:
-                count_stars += 1
-                break  
+                n_disagreements[k] += 1
+                star_i = True
+        if star_i:
+            count_stars += 1
+
+    num_unresolved_confs = 0
+    for k in range(1, n_configs):
+        if n_disagreements[k] > 0:
+            num_unresolved_confs += 1
 
     nb_unresolved_state = np.zeros(max_iter + 1, dtype=np.int32)
     nb_unresolved_state[0] = count_stars
+    nb_unresolved_confs = np.zeros(max_iter + 1, dtype=np.int32)
+    nb_unresolved_confs[0] = num_unresolved_confs
+    old_states = np.empty(n_configs, dtype=np.int8)
 
     # 4. Main MCMC Loop
     for t in range(1, max_iter + 1):
@@ -488,8 +500,7 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
         r = np.random.rand()
         s = 1 if np.random.rand() < 0.5 else -1
 
-        # Save old states at v
-        old_states = np.empty(n_configs, dtype=np.int8)
+        # Save old states at v before update
         for k in range(n_configs):
             old_states[k] = configs[k, v]
 
@@ -502,7 +513,7 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
 
         # Apply transition to ALL configurations
         for k in range(n_configs):
-            current_state = configs[k, v]  
+            current_state = configs[k, v]
             if lazy:
                 if current_state != s:
                     h = H[k, v]
@@ -516,14 +527,22 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
                             H[k, u] += 2 * w * s
             else:
                 h = H[k, v]
-                if r < sampler(beta, 2 * current_state * h):
-                    configs[k, v] = -current_state
+                if r < sampler(beta, 2 * h):
+                    configs[k, v] = -1
                     start_idx = adj_indptr[v]
                     end_idx = adj_indptr[v + 1]
                     for i in range(start_idx, end_idx):
                         u = adj_indices[i]
                         w = adj_weights[i]
-                        H[k, u] -= 2 * w * current_state                
+                        H[k, u] += - w - w * current_state
+                else:
+                    configs[k, v] = +1
+                    start_idx = adj_indptr[v]
+                    end_idx = adj_indptr[v + 1]
+                    for i in range(start_idx, end_idx):
+                        u = adj_indices[i]
+                        w = adj_weights[i]
+                        H[k, u] += + w - w * current_state
 
         # Check if v is a star site after update
         star_v_after = False
@@ -539,24 +558,46 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
         elif not star_v_before and star_v_after:
             nb_unresolved_state[t] += 1
 
-        if nb_unresolved_state[t] == 0:
-            return nb_unresolved_state[:t + 1], float(t)
+        # Update n_disagreements and num_unresolved_confs
+        old_v0 = old_states[0]
+        new_v0 = configs[0, v]
+        for k in range(1, n_configs):
+            old_vk = old_states[k]
+            new_vk = configs[k, v]
+            was_unresolved = n_disagreements[k] > 0
+            if (old_vk != old_v0) and (new_vk == new_v0):
+                n_disagreements[k] -= 1
+            elif (old_vk == old_v0) and (new_vk != new_v0):
+                n_disagreements[k] += 1
+            is_unresolved = n_disagreements[k] > 0
+            if was_unresolved and not is_unresolved:
+                num_unresolved_confs -= 1
+            elif not was_unresolved and is_unresolved:
+                num_unresolved_confs += 1
+        nb_unresolved_confs[t] = num_unresolved_confs
 
-    return nb_unresolved_state, np.nan
+        if nb_unresolved_state[t] == 0:
+            return nb_unresolved_state[:t + 1], nb_unresolved_confs[:t + 1], float(t)
+
+    return nb_unresolved_state, nb_unresolved_confs, np.nan
 
 def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_configs=100, lazy=True):
+    # Check: Metropolois sampler only works with lazy BC
+    if not lazy and sampler is F_beta_Metropolis:
+        raise ValueError(f"sampler '{sampler.__name__}' incompatible with lazy={lazy} BC update")    
+
     # build CSR format
     N, adj_indices, adj_indptr, adj_weights, _ = _build_csr(G, couplings)
     
     # Pass everything to the core
-    nb_unresolved_state, final_step = _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=lazy)
+    nb_unresolved_state, nb_unresolved_confs, final_step = _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=lazy)
 
     if not np.isnan(final_step):
         print(f"Coalescence achieved at iteration {int(final_step)}.", flush=True)
     else:
         print(f"Warning: Coalescence not achieved after {max_iter} iterations.", flush=True)
         
-    return list(nb_unresolved_state), final_step
+    return list(nb_unresolved_state), nb_unresolved_confs, final_step
 
 ## COALESCENCE TIME FOR BC
 def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=False):
@@ -628,7 +669,7 @@ def compute_coal_time_DS(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glaub
         coal_times = []
         for _ in range(n_runs):
             G, couplings = G_factory(N)  # resample each run for disorder average
-            _, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+            _, _, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
             if not np.isnan(coal_time):
                 coal_times.append(coal_time)
         results.append({
@@ -649,23 +690,33 @@ def compute_coal_time_DS(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glaub
 def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=10**4, n_configs=10, lazy=False, n_points=1000):
     
     trajectories = []
+    nb_confs = []
     coal_times = []
 
     for _ in range(n_runs):
         G, couplings = G_factory(N) 
-        nb_star_states, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+        nb_star_states, nb_unresolved_confs, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
         
         if not np.isnan(coal_time):
             coal_times.append(coal_time)
+
             pad = np.full(max_iter + 1 - len(nb_star_states), 0)
             nb_star_states = np.concatenate([nb_star_states, pad])
+
+            pad = np.full(max_iter + 1 - len(nb_unresolved_confs), 1)
+            nb_unresolved_confs = np.concatenate([nb_unresolved_confs, pad])
 
         step = max(1, len(nb_star_states) // n_points)
         nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
         trajectories.append(nb_star_states)
 
-    padded = np.array(trajectories, dtype=np.float64)
-    n = padded.shape[1]
+        step = max(1, len(nb_unresolved_confs) // n_points)
+        nb_unresolved_confs = np.concatenate([[nb_unresolved_confs[0]], nb_unresolved_confs[1::step]])
+        nb_confs.append(nb_unresolved_confs)
+
+    padded_traj = np.array(trajectories, dtype=np.float64)
+    padded_conf = np.array(nb_confs, dtype=np.float64)
+    n = padded_traj.shape[1]
     time = np.arange(n) * step
 
     return pd.DataFrame({
@@ -678,8 +729,10 @@ def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max
         'N': np.full(n, N),
         'n_coal': np.full(n, len(coal_times)),
         'time': time,
-        'mean_nb_star': np.nanmean(padded, axis=0),
-        'std_nb_star': np.nanstd(padded, axis=0),
+        'mean_nb_star': np.nanmean(padded_traj, axis=0),
+        'std_nb_star': np.nanstd(padded_traj, axis=0),
+        'mean_nb_confs': np.nanmean(padded_conf, axis=0),
+        'std_nb_confs': np.nanstd(padded_conf, axis=0),
     })
 
 ## ANALYSIS
