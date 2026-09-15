@@ -13,8 +13,38 @@ from scipy.sparse import csr_matrix
 
 
 ## MODELS
-def create_ER_graph(N, d, coupling_type='ising'):
+def create_ER_graph_slow(N, d, coupling_type='ising'):
     G = nx.erdos_renyi_graph(N, d/N)
+    if coupling_type == 'ising':
+        couplings = np.triu(np.random.choice([-1, 1], size=(N, N)), k=1)
+    elif coupling_type == 'gauss':
+        couplings = np.triu(np.random.normal(0,1, size=(N, N)), k=1)
+    else:
+        raise ValueError(f"coupling_type must be 'ising' or 'gauss', got '{coupling_type}'")
+    couplings += couplings.T  # symmetric couplings
+    couplings = couplings * nx.to_numpy_array(G)
+    return G, couplings
+
+def create_ER_graph(N, d, coupling_type='ising'):
+    G = nx.fast_gnp_random_graph(N, d/N)
+    edges = list(G.edges())
+    
+    if coupling_type == 'ising':
+        weights = np.random.choice([-1, 1], size=len(edges))
+    elif coupling_type == 'gauss':
+        weights = np.random.normal(0, 1, size=len(edges))
+    else:
+        raise ValueError(f"coupling_type must be 'ising' or 'gauss', got '{coupling_type}'")
+    
+    couplings = {}
+    for (u, v), w in zip(edges, weights):
+        couplings[(u, v)] = w
+        couplings[(v, u)] = w
+    
+    return G, couplings
+
+def create_RR_graph_slow(N, d, coupling_type='ising'):
+    G = nx.random_regular_graph(d, N)
     if coupling_type == 'ising':
         couplings = np.triu(np.random.choice([-1, 1], size=(N, N)), k=1)
     elif coupling_type == 'gauss':
@@ -27,17 +57,23 @@ def create_ER_graph(N, d, coupling_type='ising'):
 
 def create_RR_graph(N, d, coupling_type='ising'):
     G = nx.random_regular_graph(d, N)
+    edges = list(G.edges())
+
     if coupling_type == 'ising':
-        couplings = np.triu(np.random.choice([-1, 1], size=(N, N)), k=1)
+        weights = np.random.choice([-1, 1], size=len(edges))
     elif coupling_type == 'gauss':
-        couplings = np.triu(np.random.normal(0,1, size=(N, N)), k=1)
+        weights = np.random.normal(0, 1, size=len(edges))
     else:
         raise ValueError(f"coupling_type must be 'ising' or 'gauss', got '{coupling_type}'")
-    couplings += couplings.T  # symmetric couplings
-    couplings = couplings * nx.to_numpy_array(G)
+    
+    couplings = {}
+    for (u, v), w in zip(edges, weights):
+        couplings[(u, v)] = w
+        couplings[(v, u)] = w
+    
     return G, couplings
 
-def create_lattice_graph(L, d, model='RL_sg', periodic=True):
+def create_lattice_graph_slow(L, d, model='RL_sg', periodic=True):
     if d not in [2, 3]:
         raise ValueError(f"d must be 2 or 3, got {d}")
     G = nx.grid_graph(dim=[L]*d, periodic=periodic)
@@ -52,7 +88,30 @@ def create_lattice_graph(L, d, model='RL_sg', periodic=True):
         raise ValueError(f"model must be 'RL_ferr' or 'RL_sg', got '{model}'")
     return G, couplings
 
-def create_complete_graph(N, model='SK'):
+def create_lattice_graph(L, d, model='RL_sg', periodic=True):
+    if d not in [2, 3]:
+        raise ValueError(f"d must be 2 or 3, got {d}")
+    
+    G = nx.grid_graph(dim=[L]*d, periodic=periodic)
+    N = L**d
+    edges = list(G.edges())
+    
+    couplings = {}
+    if model == 'RL_ferr':
+        for (u, v) in edges:
+            couplings[(u, v)] = 1.0
+            couplings[(v, u)] = 1.0
+    elif model == 'RL_sg':
+        weights = np.random.choice([-1, 1], size=len(edges))
+        for (u, v), w in zip(edges, weights):
+            couplings[(u, v)] = w
+            couplings[(v, u)] = w
+    else:
+        raise ValueError(f"model must be 'RL_ferr' or 'RL_sg', got '{model}'")
+    
+    return G, couplings, N
+
+def create_complete_graph_slow(N, model='SK'):
     G = nx.complete_graph(N)
     if model=='CW':
         couplings = (np.ones((N, N)) - np.eye(N))/N
@@ -64,6 +123,24 @@ def create_complete_graph(N, model='SK'):
         raise ValueError(f"model must be 'CW' or 'SK', got '{model}'")
     return G, couplings
 
+def create_complete_graph(N, model='SK'):
+    G = nx.complete_graph(N)
+    edges = list(G.edges())
+    couplings = {}
+    
+    if model == 'CW':
+        for (u, v) in edges:
+            couplings[(u, v)] = 1.0 / N
+            couplings[(v, u)] = 1.0 / N
+    elif model == 'SK':
+        weights = np.random.normal(0, 1/np.sqrt(N), size=len(edges))
+        for (u, v), w in zip(edges, weights):
+            couplings[(u, v)] = w
+            couplings[(v, u)] = w
+    else:
+        raise ValueError(f"model must be 'CW' or 'SK', got '{model}'")
+    
+    return G, couplings
 ## DYNAMICS
 @njit
 def F_beta_Glauber(beta, U):
@@ -91,9 +168,9 @@ def _build_csr_slow(G, couplings):
     ptr = 0
     for i, v_node in enumerate(node_list):
         adj_indptr[i] = ptr
-        for u_node in G.neighbors(v_node):
+        for u_node in sorted(G.neighbors(v_node)):
             j = node_to_idx[u_node]
-            w = couplings[j, i]
+            w = couplings[(v_node, u_node)]  
             aw = np.abs(w)
             adj_indices[ptr] = j
             adj_weights[ptr] = w
@@ -103,20 +180,26 @@ def _build_csr_slow(G, couplings):
     
     return N, adj_indices, adj_indptr, adj_weights, adj_abs_weights    
 
-def _build_csr(G, couplings): ### TOCHECK
+def _build_csr(G, couplings):
     N = G.number_of_nodes()
     node_list = list(G.nodes())
+    node_to_idx = {node: idx for idx, node in enumerate(node_list)}
     
     A = nx.to_scipy_sparse_array(G, nodelist=node_list, format='csr')
-    
     adj_indptr = A.indptr.astype(np.int32)
     adj_indices = A.indices.astype(np.int32)
     
-    # fill weights using the coupling matrix
-    coup = nx.to_numpy_array(G, nodelist=node_list) * couplings
-    adj_weights = coup[A.indices, np.repeat(np.arange(N), np.diff(A.indptr))].astype(np.float64)
-    adj_abs_weights = np.abs(adj_weights)
+    # fill weights directly from dict, no N×N matrix
+    edges_count = len(adj_indices)
+    adj_weights = np.zeros(edges_count, dtype=np.float64)
     
+    ptr = 0
+    for i, v_node in enumerate(node_list):
+        for u_node in sorted(G.neighbors(v_node)):
+            adj_weights[ptr] = couplings[(v_node, u_node)]
+            ptr += 1
+    
+    adj_abs_weights = np.abs(adj_weights)
     return N, adj_indices, adj_indptr, adj_weights, adj_abs_weights
 
 def test_build_csr(G, couplings):
@@ -367,16 +450,16 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
         
     return list(nb_star_state), final_step
 
-## DAMAGE SPREADING
+## DAMAGE SPREADING (MULTIPLE MCMC)
 @njit
 def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=True):
-    # 1. Initialize n_configs random configurations (+1 or -1)
+    # 1. Initialize n_configs random configurations
     configs = np.empty((n_configs, N), dtype=np.int8)
     for k in range(n_configs):
         for i in range(N):
             configs[k, i] = 1 if np.random.rand() < 0.5 else -1
 
-    # 2. Pre-calculate the initial local field (H)
+    # 2. Pre-calculate initial local fields
     H = np.zeros((n_configs, N), dtype=np.float64)
     for k in range(n_configs):
         for v in range(N):
@@ -388,72 +471,78 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
                 w = adj_weights[i]
                 H[k, u] += w * state_v
 
-    # 3. Initialize disagreement counts vs config 0
-    old_states = np.empty(n_configs, dtype=np.int8)
-    unresolved = np.ones(n_configs, dtype=np.bool_)
-    unresolved[0] = False
-    n_disagreements = np.zeros(n_configs, dtype=np.int32)
-    for k in range(1, n_configs):
-        for i in range(N):
+    # 3. Initialize count_stars
+    count_stars = 0
+    for i in range(N):
+        for k in range(1, n_configs):
             if configs[k, i] != configs[0, i]:
-                n_disagreements[k] += 1
-    num_unresolved = n_configs - 1
+                count_stars += 1
+                break  
 
     nb_unresolved_state = np.zeros(max_iter + 1, dtype=np.int32)
-    nb_unresolved_state[0] = num_unresolved
+    nb_unresolved_state[0] = count_stars
 
     # 4. Main MCMC Loop
     for t in range(1, max_iter + 1):
         v = np.random.randint(0, N)
         r = np.random.rand()
-        
-        if lazy:
-            s = 1 if np.random.rand() < 0.5 else -1
-        
-        # Save old states at vertex v before any update
+        s = 1 if np.random.rand() < 0.5 else -1
+
+        # Save old states at v
+        old_states = np.empty(n_configs, dtype=np.int8)
         for k in range(n_configs):
             old_states[k] = configs[k, v]
 
+        # Check if v is a star site before update
+        star_v_before = False
+        for k in range(1, n_configs):
+            if old_states[k] != old_states[0]:
+                star_v_before = True
+                break
+
         # Apply transition to ALL configurations
         for k in range(n_configs):
-            current_state = configs[k, v]
-            
-            if not lazy:
-                s = -current_state  
-            
-            if current_state != s:
+            current_state = configs[k, v]  
+            if lazy:
+                if current_state != s:
+                    h = H[k, v]
+                    if r < sampler(beta, 2 * current_state * h):
+                        configs[k, v] = s
+                        start_idx = adj_indptr[v]
+                        end_idx = adj_indptr[v + 1]
+                        for i in range(start_idx, end_idx):
+                            u = adj_indices[i]
+                            w = adj_weights[i]
+                            H[k, u] += 2 * w * s
+            else:
                 h = H[k, v]
                 if r < sampler(beta, 2 * current_state * h):
-                    configs[k, v] = s
+                    configs[k, v] = -current_state
                     start_idx = adj_indptr[v]
                     end_idx = adj_indptr[v + 1]
                     for i in range(start_idx, end_idx):
                         u = adj_indices[i]
                         w = adj_weights[i]
-                        H[k, u] += 2 * w * s
+                        H[k, u] -= 2 * w * current_state                
 
-        # Update disagreement counts
-        old_v0 = old_states[0]
-        new_v0 = configs[0, v]
+        # Check if v is a star site after update
+        star_v_after = False
         for k in range(1, n_configs):
-            if unresolved[k]:
-                old_vk = old_states[k]
-                new_vk = configs[k, v]
-                if (old_vk != old_v0) and (new_vk == new_v0):
-                    n_disagreements[k] -= 1
-                elif (old_vk == old_v0) and (new_vk != new_v0):
-                    n_disagreements[k] += 1
-                if n_disagreements[k] == 0:
-                    unresolved[k] = False
-                    num_unresolved -= 1
+            if configs[k, v] != configs[0, v]:
+                star_v_after = True
+                break
 
-        nb_unresolved_state[t] = num_unresolved
+        # Update count_stars
+        nb_unresolved_state[t] = nb_unresolved_state[t-1]
+        if star_v_before and not star_v_after:
+            nb_unresolved_state[t] -= 1
+        elif not star_v_before and star_v_after:
+            nb_unresolved_state[t] += 1
 
-        if num_unresolved == 0:
+        if nb_unresolved_state[t] == 0:
             return nb_unresolved_state[:t + 1], float(t)
 
     return nb_unresolved_state, np.nan
-
 
 def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_configs=100, lazy=True):
     # build CSR format
@@ -469,8 +558,7 @@ def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_co
         
     return list(nb_unresolved_state), final_step
 
-
-## COALESCENCE TIME
+## COALESCENCE TIME FOR BC
 def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=False):
     results = []
     for N in N_list:
@@ -495,7 +583,7 @@ def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber,
         })
     return pd.DataFrame(results)
 
-## EVOLUTION OF UNRESOLVED STATES
+## EVOLUTION OF UNRESOLVED STATES FOR BC
 def compute_nb_star(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=10**4, init_mode='full_star', lazy=False, n_points=1000):
     
     trajectories = []
@@ -523,6 +611,68 @@ def compute_nb_star(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_it
         'sampler': np.full(n, sampler.__name__),
         'lazy': np.full(n, lazy),
         'init_mode': np.full(n, init_mode),
+        'n_runs': np.full(n, n_runs),
+        'max_iter': np.full(n, max_iter),
+        'N': np.full(n, N),
+        'n_coal': np.full(n, len(coal_times)),
+        'time': time,
+        'mean_nb_star': np.nanmean(padded, axis=0),
+        'std_nb_star': np.nanstd(padded, axis=0),
+    })
+
+## COALESCENCE TIME FOR DAMAGE SPREADING (MULTIPLE MCMC)
+def compute_coal_time_DS(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=100, n_configs=10, lazy=False):
+    results = []
+    for N in N_list:
+        print(f"N={int(N)}", flush=True)
+        coal_times = []
+        for _ in range(n_runs):
+            G, couplings = G_factory(N)  # resample each run for disorder average
+            _, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+            if not np.isnan(coal_time):
+                coal_times.append(coal_time)
+        results.append({
+            'beta': beta,
+            'sampler': sampler.__name__,
+            'lazy': lazy,
+            'n_configs': n_configs,
+            'n_runs': n_runs,
+            'max_iter': max_iter,
+            'N': N,
+            'n_coal': len(coal_times),
+            'mean_coal_time': np.mean(coal_times) if len(coal_times) > 0 else np.nan,
+            'std_coal_time': np.std(coal_times) if len(coal_times) > 0 else np.nan,
+        })
+    return pd.DataFrame(results)
+
+## EVOLUTION OF UNRESOLVED STATES FOR DAMAGE SPREADING (MULTIPLE MCMC)
+def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_iter=10**4, n_configs=10, lazy=False, n_points=1000):
+    
+    trajectories = []
+    coal_times = []
+
+    for _ in range(n_runs):
+        G, couplings = G_factory(N) 
+        nb_star_states, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+        
+        if not np.isnan(coal_time):
+            coal_times.append(coal_time)
+            pad = np.full(max_iter + 1 - len(nb_star_states), 0)
+            nb_star_states = np.concatenate([nb_star_states, pad])
+
+        step = max(1, len(nb_star_states) // n_points)
+        nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
+        trajectories.append(nb_star_states)
+
+    padded = np.array(trajectories, dtype=np.float64)
+    n = padded.shape[1]
+    time = np.arange(n) * step
+
+    return pd.DataFrame({
+        'beta': np.full(n, beta),
+        'sampler': np.full(n, sampler.__name__),
+        'lazy': np.full(n, lazy),
+        'n_configs': np.full(n, n_configs),
         'n_runs': np.full(n, n_runs),
         'max_iter': np.full(n, max_iter),
         'N': np.full(n, N),
