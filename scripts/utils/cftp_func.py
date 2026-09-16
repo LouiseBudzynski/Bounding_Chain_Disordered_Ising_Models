@@ -110,7 +110,7 @@ def create_lattice_graph(L, d, model='RL_sg', periodic=True):
     else:
         raise ValueError(f"model must be 'RL_ferr' or 'RL_sg', got '{model}'")
     
-    return G, couplings, N
+    return G, couplings
 
 def create_complete_graph_slow(N, model='SK'):
     G = nx.complete_graph(N)

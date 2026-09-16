@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.cftp_func import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--graph_type', type=str, required=True, choices=['ER', 'RR', 'CW', 'SK'])
+parser.add_argument('--graph_type', type=str, required=True, choices=['ER', 'RR', 'CW', 'SK', 'F2D', 'F3D', 'EA2D', 'EA3D'])
 parser.add_argument('--coup_type', type=str, default='ising', choices=['ising', 'gauss'])
 parser.add_argument('--d', type=int, default=4)
 parser.add_argument('--beta', type=float, required=True)
@@ -31,6 +31,14 @@ if __name__ == '__main__':
         G_factory = lambda N: create_complete_graph(N, 'CW')
     elif args.graph_type == 'SK':
         G_factory = lambda N: create_complete_graph(N, 'SK')
+    elif args.graph_type == 'F2D':
+        G_factory = lambda N: create_lattice_graph(N, 2, model='RL_ferr', periodic=True)
+    elif args.graph_type == 'F3D':
+        G_factory = lambda N: create_lattice_graph(N, 3, model='RL_ferr', periodic=True)
+    elif args.graph_type == 'EA2D':
+        G_factory = lambda N: create_lattice_graph(N, 2, model='RL_sg', periodic=True)
+    elif args.graph_type == 'EA3D':
+        G_factory = lambda N: create_lattice_graph(N, 3, model='RL_sg', periodic=True)
 
     df = compute_coal_time(
         N_list=args.N_list,
