@@ -51,8 +51,8 @@ if __name__ == '__main__':
 
 
     if os.path.exists(csv_path):
-        df_full = pd.read_csv(csv_path)
-        df_combined = pd.concat([df_full, df], ignore_index=True)
+        df_existing = pd.read_csv(csv_path)
+        df_combined = pd.concat([df_existing, df], ignore_index=True)
         df_combined.to_csv(csv_path, index=False)
     else:
         df.to_csv(csv_path, index=False)

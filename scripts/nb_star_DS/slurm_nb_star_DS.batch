@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# slurm_nb_star_DS.batch
+#
+
+#SBATCH --job-name=nb_star_DS
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=16G
+#SBATCH --time=72:00:00
+#SBATCH --output=%x_%j.log
+
+echo "Running on $(hostname)"
+echo "Job ID: $SLURM_JOB_ID"
+
+# Parse arguments
+GRAPH_TYPE=$1
+COUP_TYPE=$2
+D=$3
+BETA_LIST=$4   # e.g. "0.2 0.3 0.4 0.5"
+N_RUNS=$5
+MAX_ITER=$6
+N_CONFIGS=$7
+LAZY=$8
+N=$9   
+
+echo "Parameters: GRAPH_TYPE=$GRAPH_TYPE, COUP_TYPE=$COUP_TYPE, D=$D, BETA_LIST=$BETA_LIST, N_RUNS=$N_RUNS, MAX_ITER=$MAX_ITER, N_CONFIGS=$N_CONFIGS, LAZY=$LAZY, N=$N"
+
+source /home/$USER/.bashrc
+conda activate py312
+
+python run_nb_star_DS.py \
+    --graph_type $GRAPH_TYPE \
+    --coup_type $COUP_TYPE \
+    --d $D \
+    --beta_list $BETA_LIST \
+    --n_runs $N_RUNS \
+    --max_iter $MAX_ITER \
+    --n_configs $N_CONFIGS \
+    --lazy $LAZY \
+    --N $N

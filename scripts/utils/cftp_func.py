@@ -10,6 +10,7 @@ import networkx as nx
 import pandas as pd
 from scipy.stats import norm
 from scipy.sparse import csr_matrix
+from scipy.optimize import brentq
 
 
 ## MODELS
@@ -744,3 +745,15 @@ def wilson_interval(k, n, confidence=0.95): ### TOCHECK
     lower = center - margin
     upper = center + margin
     return p, p - lower, upper - p  # value, err_down, err_up
+
+def solve_beta_critical_gauss(d, n_samples=10**6):
+    """
+    Solve E[tanh(beta * |J|)] = 1/d where J ~ N(0,1)
+    """
+    J = np.abs(np.random.randn(n_samples))
+    
+    def equation(beta):
+        return np.mean(np.tanh(beta * J)) - 1/d
+    
+    return brentq(equation, 0, 10)
+
