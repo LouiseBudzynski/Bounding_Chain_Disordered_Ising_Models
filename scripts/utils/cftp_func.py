@@ -216,7 +216,7 @@ def test_build_csr(G, couplings):
 
 ## FORWARD BC
 @njit
-def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag):
+def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, store_traj):
     config = np.empty(N, dtype=np.int8)
     
     # 1. Initialize Configuration based on flag
@@ -253,8 +253,9 @@ def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_we
             else:
                 M[u] += aw
 
-    nb_star_state = np.zeros(max_iter + 1, dtype=np.int32)
-    nb_star_state[0] = num_stars
+    if store_traj:
+        nb_star_state = np.zeros(max_iter + 1, dtype=np.int32)
+        nb_star_state[0] = num_stars
     
     # 3. Main MCMC Loop
     for timestep in range(max_iter):
@@ -306,16 +307,23 @@ def _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_we
                 else:
                     M[u] += aw
 
-        nb_star_state[timestep + 1] = num_stars
+        if store_traj:
+            nb_star_state[timestep + 1] = num_stars
 
         # Coalescence check
         if num_stars == 0:
-            return nb_star_state[:timestep + 2], float(timestep)
+            if store_traj:
+                return nb_star_state[:timestep + 2], float(timestep)
+            else:
+                return np.zeros(1, dtype=np.int32), float(timestep)
 
-    return nb_star_state, np.nan
+    if store_traj:
+        return nb_star_state, np.nan
+    else:
+        return np.zeros(1, dtype=np.int32), np.nan
 
 @njit
-def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler):
+def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler, store_traj):
     config = np.empty(N, dtype=np.int8)
     
     # 1. Initialize Configuration based on flag
@@ -352,8 +360,9 @@ def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_a
             else:
                 M[u] += aw
 
-    nb_star_state = np.zeros(max_iter + 1, dtype=np.int32)
-    nb_star_state[0] = num_stars
+    if store_traj:
+        nb_star_state = np.zeros(max_iter + 1, dtype=np.int32)
+        nb_star_state[0] = num_stars
     
     # 3. Main MCMC Loop
     for timestep in range(max_iter):
@@ -408,15 +417,22 @@ def _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_a
                     else:
                         M[u] += aw
 
-        nb_star_state[timestep + 1] = num_stars
+        if store_traj:
+            nb_star_state[timestep + 1] = num_stars
 
         # Coalescence check
         if num_stars == 0:
-            return nb_star_state[:timestep + 2], float(timestep)
+            if store_traj:
+                return nb_star_state[:timestep + 2], float(timestep)
+            else:
+                return np.zeros(1, dtype=np.int32), float(timestep)
 
-    return nb_star_state, np.nan
+    if store_traj:
+        return nb_star_state, np.nan
+    else:
+        return np.zeros(1, dtype=np.int32), np.nan
 
-def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=True):
+def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='full_star', lazy=True, store_traj=False):
     # Check: Metropolois sampler only works with lazy BC
     if not lazy and sampler is F_beta_Metropolis:
         raise ValueError(f"sampler '{sampler.__name__}' incompatible with lazy={lazy} BC update")    
@@ -439,9 +455,9 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
     
     # Pass everything to the core
     if lazy:
-        nb_star_state, final_step = _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler)
+        nb_star_state, final_step = _BC_fwd_lazy_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, sampler, store_traj)
     else:
-        nb_star_state, final_step = _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag)
+        nb_star_state, final_step = _BC_fwd_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, adj_abs_weights, max_iter, init_flag, store_traj)
 
         
     if not np.isnan(final_step):
@@ -608,7 +624,7 @@ def compute_coal_time(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glauber,
         coal_times = []
         for _ in range(n_runs):
             G, couplings = G_factory(N)  # resample each run for disorder average
-            _, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy)
+            _, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy, store_traj=False)
             if not np.isnan(coal_time):
                 coal_times.append(coal_time)
         results.append({
@@ -633,7 +649,7 @@ def compute_nb_star(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_it
 
     for _ in range(n_runs):
         G, couplings = G_factory(N) 
-        nb_star_states, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy)
+        nb_star_states, coal_time = BC_fwd(beta, G, couplings, sampler=sampler, max_iter=max_iter, init_mode=init_mode, lazy=lazy, store_traj=True)
         
         if not np.isnan(coal_time):
             coal_times.append(coal_time)

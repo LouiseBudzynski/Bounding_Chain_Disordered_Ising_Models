@@ -1,7 +1,7 @@
 Run run_coal_time.py as:
 
 bash
-python run_coal_time.py --graph_type ER --coup_type ising --d 4 --beta 0.3 --n_runs 25 --lazy False --N_list 100 500 1000 2500
+nohup python run_coal_time.py --graph_type ER --coup_type gauss --d 4 --beta 0.33 --n_runs 50 --max_iter 1000000000 --N_list 100 1000 &
 
 To launch multiple betas in parallel:
 

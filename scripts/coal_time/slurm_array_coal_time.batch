@@ -6,7 +6,7 @@
 #SBATCH --job-name=coal_time_array
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=16G
+#SBATCH --mem=64G
 #SBATCH --time=72:00:00
 #SBATCH --output=%x_%j.log
 
