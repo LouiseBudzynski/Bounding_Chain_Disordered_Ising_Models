@@ -656,13 +656,19 @@ def compute_nb_star(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max_it
             pad = np.full(max_iter + 1 - len(nb_star_states), 0)
             nb_star_states = np.concatenate([nb_star_states, pad])
 
-        step = max(1, len(nb_star_states) // n_points)
-        nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
+#        step = max(1, len(nb_star_states) // n_points)
+#        nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
+        indices = np.unique(np.round(np.logspace(0, np.log10(len(nb_star_states) - 1), n_points)).astype(int))
+        indices = indices[indices < len(nb_star_states)]
+        nb_star_states = np.array(nb_star_states)  
+        nb_star_states = nb_star_states[indices]
+
         trajectories.append(nb_star_states)
 
     padded = np.array(trajectories, dtype=np.float64)
     n = padded.shape[1]
-    time = np.arange(n) * step
+#    time = np.arange(n) * step
+    time = indices
 
     return pd.DataFrame({
         'beta': np.full(n, beta),
@@ -713,28 +719,27 @@ def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max
     for _ in range(n_runs):
         G, couplings = G_factory(N) 
         nb_star_states, nb_unresolved_confs, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
-        
         if not np.isnan(coal_time):
             coal_times.append(coal_time)
 
-            pad = np.full(max_iter + 1 - len(nb_star_states), 0)
-            nb_star_states = np.concatenate([nb_star_states, pad])
+        nb_star_states = np.array(nb_star_states)
+        pad = np.full(max_iter + 1 - len(nb_star_states), 0)
+        nb_star_states = np.concatenate([nb_star_states, pad])
 
-            pad = np.full(max_iter + 1 - len(nb_unresolved_confs), 1)
-            nb_unresolved_confs = np.concatenate([nb_unresolved_confs, pad])
+        nb_unresolved_confs = np.array(nb_unresolved_confs)
+        pad = np.full(max_iter + 1 - len(nb_unresolved_confs), 1)
+        nb_unresolved_confs = np.concatenate([nb_unresolved_confs, pad])
 
-        step = max(1, len(nb_star_states) // n_points)
-        nb_star_states = np.concatenate([[nb_star_states[0]], nb_star_states[1::step]])
-        trajectories.append(nb_star_states)
+        indices = np.unique(np.round(np.logspace(0, np.log10(len(nb_star_states) - 1), n_points)).astype(int))
+        indices = indices[indices < len(nb_star_states)]
 
-        step = max(1, len(nb_unresolved_confs) // n_points)
-        nb_unresolved_confs = np.concatenate([[nb_unresolved_confs[0]], nb_unresolved_confs[1::step]])
-        nb_confs.append(nb_unresolved_confs)
+        trajectories.append(nb_star_states[indices])
+        nb_confs.append(nb_unresolved_confs[indices])
 
     padded_traj = np.array(trajectories, dtype=np.float64)
     padded_conf = np.array(nb_confs, dtype=np.float64)
     n = padded_traj.shape[1]
-    time = np.arange(n) * step
+    time = indices
 
     return pd.DataFrame({
         'beta': np.full(n, beta),

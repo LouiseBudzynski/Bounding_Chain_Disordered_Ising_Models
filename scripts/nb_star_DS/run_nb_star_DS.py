@@ -23,7 +23,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     lazy = args.lazy == 'True'
 
-    # define G_factory based on graph type
     if args.graph_type == 'ER':
         G_factory = lambda N: create_ER_graph(N, args.d, args.coup_type)
     elif args.graph_type == 'RR':

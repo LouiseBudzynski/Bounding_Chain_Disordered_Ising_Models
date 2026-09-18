@@ -1,7 +1,7 @@
 Run run_nb_star_DS.py as:
 
 bash
-python run_nb_star_DS.py --graph_type ER --coup_type ising --d 4 --beta_list 0.2 0.21 0.22 --n_runs 25 --n_configs 10 --lazy False --N 1000 &
+nohup python run_nb_star_DS.py --graph_type ER --coup_type gauss --d 4 --beta_list 0.3 0.31 0.32 0.33 0.34 --n_runs 50 --max_iter 100000000 --lazy False --N 1000 --n_points 1000 &
 
 To launch multiple betas in parallel:
 
