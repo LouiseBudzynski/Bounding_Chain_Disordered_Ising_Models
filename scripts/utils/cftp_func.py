@@ -469,7 +469,7 @@ def BC_fwd(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, init_mode='
 
 ## DAMAGE SPREADING (MULTIPLE MCMC)
 @njit
-def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=True):
+def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, store_traj, lazy=True):
     # 1. Initialize n_configs random configurations
     configs = np.empty((n_configs, N), dtype=np.int8)
     for k in range(n_configs):
@@ -505,11 +505,13 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
         if n_disagreements[k] > 0:
             num_unresolved_confs += 1
 
-    nb_unresolved_state = np.zeros(max_iter + 1, dtype=np.int32)
-    nb_unresolved_state[0] = count_stars
-    nb_unresolved_confs = np.zeros(max_iter + 1, dtype=np.int32)
-    nb_unresolved_confs[0] = num_unresolved_confs
+    if store_traj:
+        nb_unresolved_state = np.zeros(max_iter + 1, dtype=np.int32)
+        nb_unresolved_state[0] = count_stars
+        nb_unresolved_confs = np.zeros(max_iter + 1, dtype=np.int32)
+        nb_unresolved_confs[0] = num_unresolved_confs
     old_states = np.empty(n_configs, dtype=np.int8)
+    count_stars_old = count_stars
 
     # 4. Main MCMC Loop
     for t in range(1, max_iter + 1):
@@ -569,37 +571,46 @@ def _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max
                 break
 
         # Update count_stars
-        nb_unresolved_state[t] = nb_unresolved_state[t-1]
         if star_v_before and not star_v_after:
-            nb_unresolved_state[t] -= 1
+            count_stars = count_stars_old - 1
         elif not star_v_before and star_v_after:
-            nb_unresolved_state[t] += 1
+            count_stars = count_stars_old + 1
+        count_stars_old = count_stars
+        if store_traj:
+            nb_unresolved_state[t] = count_stars
 
         # Update n_disagreements and num_unresolved_confs
-        old_v0 = old_states[0]
-        new_v0 = configs[0, v]
-        for k in range(1, n_configs):
-            old_vk = old_states[k]
-            new_vk = configs[k, v]
-            was_unresolved = n_disagreements[k] > 0
-            if (old_vk != old_v0) and (new_vk == new_v0):
-                n_disagreements[k] -= 1
-            elif (old_vk == old_v0) and (new_vk != new_v0):
-                n_disagreements[k] += 1
-            is_unresolved = n_disagreements[k] > 0
-            if was_unresolved and not is_unresolved:
-                num_unresolved_confs -= 1
-            elif not was_unresolved and is_unresolved:
-                num_unresolved_confs += 1
-        nb_unresolved_confs[t] = num_unresolved_confs
+        if store_traj:
+            old_v0 = old_states[0]
+            new_v0 = configs[0, v]
+            for k in range(1, n_configs):
+                old_vk = old_states[k]
+                new_vk = configs[k, v]
+                was_unresolved = n_disagreements[k] > 0
+                if (old_vk != old_v0) and (new_vk == new_v0):
+                    n_disagreements[k] -= 1
+                elif (old_vk == old_v0) and (new_vk != new_v0):
+                    n_disagreements[k] += 1
+                is_unresolved = n_disagreements[k] > 0
+                if was_unresolved and not is_unresolved:
+                    num_unresolved_confs -= 1
+                elif not was_unresolved and is_unresolved:
+                    num_unresolved_confs += 1
+            nb_unresolved_confs[t] = num_unresolved_confs
 
-        if nb_unresolved_state[t] == 0:
-            return nb_unresolved_state[:t + 1], nb_unresolved_confs[:t + 1], float(t)
+        if count_stars == 0:
+            if store_traj:
+                return nb_unresolved_state[:t + 1], nb_unresolved_confs[:t + 1], float(t)
+            else:
+                return np.zeros(1, dtype=np.int32), np.zeros(1, dtype=np.int32), float(t)
 
-    return nb_unresolved_state, nb_unresolved_confs, np.nan
+    if store_traj:
+        return nb_unresolved_state, nb_unresolved_confs, np.nan
+    else:
+        return np.zeros(1, dtype=np.int32), np.zeros(1, dtype=np.int32), np.nan
 
-def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_configs=100, lazy=True):
-    # Check: Metropolois sampler only works with lazy BC
+def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_configs=100, lazy=True, store_traj=False):
+    # Check: Metropolis sampler only works with lazy BC
     if not lazy and sampler is F_beta_Metropolis:
         raise ValueError(f"sampler '{sampler.__name__}' incompatible with lazy={lazy} BC update")    
 
@@ -607,7 +618,7 @@ def multiple_mcmc(beta, G, couplings, sampler=F_beta_Glauber, max_iter=100, n_co
     N, adj_indices, adj_indptr, adj_weights, _ = _build_csr(G, couplings)
     
     # Pass everything to the core
-    nb_unresolved_state, nb_unresolved_confs, final_step = _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, lazy=lazy)
+    nb_unresolved_state, nb_unresolved_confs, final_step = _multiple_mcmc_numba_core(beta, N, adj_indices, adj_indptr, adj_weights, max_iter, n_configs, sampler, store_traj, lazy=lazy)
 
     if not np.isnan(final_step):
         print(f"Coalescence achieved at iteration {int(final_step)}.", flush=True)
@@ -692,7 +703,7 @@ def compute_coal_time_DS(N_list, beta, G_factory, n_runs=5, sampler=F_beta_Glaub
         coal_times = []
         for _ in range(n_runs):
             G, couplings = G_factory(N)  # resample each run for disorder average
-            _, _, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+            _, _, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy, store_traj=False)
             if not np.isnan(coal_time):
                 coal_times.append(coal_time)
         results.append({
@@ -718,7 +729,7 @@ def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max
 
     for _ in range(n_runs):
         G, couplings = G_factory(N) 
-        nb_star_states, nb_unresolved_confs, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy)
+        nb_star_states, nb_unresolved_confs, coal_time = multiple_mcmc(beta, G, couplings, sampler=sampler, max_iter=max_iter, n_configs=n_configs, lazy=lazy, store_traj=True)
         if not np.isnan(coal_time):
             coal_times.append(coal_time)
 
