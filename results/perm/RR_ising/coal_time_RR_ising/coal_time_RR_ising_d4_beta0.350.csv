@@ -1,0 +1,9 @@
+beta,sampler,lazy,init_mode,n_runs,max_iter,N,n_coal,mean_coal_time,std_coal_time
+0.35,F_beta_Glauber,False,full_star,50,1000000000,100,50,13875.26,8886.0272671425
+0.35,F_beta_Glauber,False,full_star,50,1000000000,300,50,111948.34,63892.548037657725
+0.35,F_beta_Glauber,False,full_star,50,1000000000,1000,50,1192411.52,987531.5539289716
+0.35,F_beta_Glauber,False,full_star,50,1000000000,3000,50,20392435.04,18002211.791954916
+0.35,F_beta_Glauber,False,full_star,50,1000000000,100000,0,,
+0.35,F_beta_Glauber,False,full_star,50,1000000000,500,50,247206.8,174761.19395151772
+0.35,F_beta_Glauber,False,full_star,50,1000000000,5000,50,304767869.72,240554934.27356714
+0.35,F_beta_Glauber,False,full_star,50,1000000000,10000,0,,
