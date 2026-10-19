@@ -1,0 +1,6 @@
+beta,sampler,lazy,init_mode,n_runs,max_iter,N,n_coal,mean_coal_time,std_coal_time
+0.1,F_beta_Glauber,False,full_star,50,1000000000,10,50,33.36,11.841891740765073
+0.1,F_beta_Glauber,False,full_star,50,1000000000,30,50,189.94,68.64063228147013
+0.1,F_beta_Glauber,False,full_star,50,1000000000,100,50,1761.52,665.5169791973756
+0.1,F_beta_Glauber,False,full_star,50,10000000000,150,50,7586.02,3959.633697654368
+0.1,F_beta_Glauber,False,full_star,50,10000000000,60,50,613.82,156.6375038105498

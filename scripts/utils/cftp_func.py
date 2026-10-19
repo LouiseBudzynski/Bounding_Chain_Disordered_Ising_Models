@@ -64,8 +64,10 @@ def create_RR_graph(N, d, coupling_type='ising'):
         weights = np.random.choice([-1, 1], size=len(edges))
     elif coupling_type == 'gauss':
         weights = np.random.normal(0, 1, size=len(edges))
+    elif coupling_type == 'gaussSKscaling':
+        weights = np.random.normal(0, 1, size=len(edges))/np.sqrt(d)
     else:
-        raise ValueError(f"coupling_type must be 'ising' or 'gauss', got '{coupling_type}'")
+        raise ValueError(f"coupling_type must be 'ising' or 'gauss' or 'gaussSKscaling', got '{coupling_type}'")
     
     couplings = {}
     for (u, v), w in zip(edges, weights):
@@ -90,8 +92,8 @@ def create_lattice_graph_slow(L, d, model='RL_sg', periodic=True):
     return G, couplings
 
 def create_lattice_graph(L, d, model='RL_sg', periodic=True):
-    if d not in [2, 3]:
-        raise ValueError(f"d must be 2 or 3, got {d}")
+    if d not in [2, 3, 4]:
+        raise ValueError(f"d must be 2, 3 or 4, got {d}")
     
     G = nx.grid_graph(dim=[L]*d, periodic=periodic)
     N = L**d
