@@ -771,7 +771,7 @@ def compute_nb_star_DS(N, beta, G_factory, n_runs=5, sampler=F_beta_Glauber, max
     })
 
 ## ANALYSIS
-def wilson_interval(k, n, confidence=0.95): ### TOCHECK
+def wilson_interval(k, n, confidence=0.95): 
     z = norm.ppf((1 + confidence) / 2)
     p = k / n
     center = (k + z**2/2) / (n + z**2)
