@@ -1,3 +1,9 @@
-# Bounding_Chain_Disordered_Ising_Models
-This repository is the code accompanying the paper "Perfect sampling with bounding chains in disordered Ising models".
-See also the first repository https://github.com/LukasPeron/Propp-Wilson-disordered-spins-systems
+# Bounding chains for disordered Ising models
+
+Code accompanying the manuscript **“Perfect sampling with bounding chains in disordered Ising models.”**
+
+This repository contains numerical experiments on the coalescence of single-site bounding chains and on damage spreading under coupled Glauber dynamics. The experiments cover sparse random graphs, periodic lattices, and complete graphs, with several coupling distributions.
+
+## Related code
+
+An earlier repository is available at [Propp-Wilson-disordered-spins-systems](https://github.com/LukasPeron/Propp-Wilson-disordered-spins-systems).
